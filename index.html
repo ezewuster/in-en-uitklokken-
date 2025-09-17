@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>In-/Uitklok + Ronde (locatie bij ronde-start)</title>
+  <title>In-/Uitklok + Ronde (namen in modal)</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <meta name="color-scheme" content="light dark" />
   <style>
@@ -56,15 +56,11 @@
               <input id="newUserName" type="text" placeholder="Voor- en achternaam" class="px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-800" />
             </div>
             <button id="addUserBtn" type="button" class="chip bg-blue-600 text-white border-blue-600 hover:brightness-110">Toevoegen</button>
+            <!-- Nieuw: opent modal -->
+            <button id="openNamesModal" type="button" class="chip">Beheer namen</button>
           </div>
         </div>
         <p id="nameError" class="text-sm text-red-500 hidden"></p>
-      </div>
-
-      <!-- Namenbeheer -->
-      <div class="mb-5">
-        <h3 class="text-sm font-medium mb-2">Namen (klik × om te verwijderen)</h3>
-        <div id="userChips" class="flex flex-wrap gap-2"></div>
       </div>
 
       <!-- Locatie kiezen -->
@@ -116,6 +112,21 @@
     </section>
   </main>
 
+  <!-- MODAL: Namen beheren (default hidden) -->
+  <div id="namesModal" class="fixed inset-0 z-50 hidden">
+    <div id="namesModalBackdrop" class="absolute inset-0 bg-black/50"></div>
+    <div class="relative z-10 mx-auto mt-20 max-w-2xl w-[92%]">
+      <div class="card p-4 sm:p-6 bg-slate-50 dark:bg-slate-900">
+        <div class="flex items-center justify-between mb-3">
+          <h3 class="text-lg font-semibold">Namen beheren <span id="userCount" class="text-slate-500">(0)</span></h3>
+          <button id="closeNamesModal" class="xbtn" title="Sluiten">×</button>
+        </div>
+        <p class="text-xs text-slate-500 mb-3">Klik op <strong>×</strong> achter een naam om te verwijderen.</p>
+        <div id="userChips" class="flex flex-wrap gap-2"></div>
+      </div>
+    </div>
+  </div>
+
   <script>
     // ---------- Constants & helpers ----------
     const TZ='Europe/Amsterdam';
@@ -130,7 +141,12 @@
       deleteSelectedBtn: $('deleteSelectedBtn'),
       newUserName: $('newUserName'),
       addUserBtn: $('addUserBtn'),
+      openNamesModal: $('openNamesModal'),
+      namesModal: $('namesModal'),
+      namesModalBackdrop: $('namesModalBackdrop'),
+      closeNamesModal: $('closeNamesModal'),
       nameError: $('nameError'),
+      userCount: $('userCount'),
       userChips: $('userChips'),
       locationChips: $('locationChips'),
       statusBar: $('statusBar'),
@@ -228,7 +244,7 @@
       open.end_at=nowISO(); saveShifts(s);
       pushActivity(u.display_name+' uitklokte @ '+open.location);
     }
-    // ★★ HIER aangepast: locatie vastleggen + tonen bij Start ronde
+    // Ronde: bewaar startlocatie
     function startRound(uid){
       const shift = getShifts().find(s=>s.user_id===uid && !s.end_at);
       if(!shift) throw new Error('Eerst inklokken.');
@@ -260,12 +276,19 @@
         if(users.some(u=>u.id===keep)) els.userSelect.value=keep;
       }
     }
+    function renderUserCount(){
+      if(els.userCount){
+        const n = getUsers().filter(u=>u.is_active!==false).length;
+        els.userCount.textContent = `(${n})`;
+      }
+    }
     function renderUserChips(){
       const users=getUsers().filter(u=>u.is_active!==false).sort((a,b)=>a.display_name.localeCompare(b.display_name,'nl-NL'));
+      renderUserCount();
       if(els.userChips){
         els.userChips.innerHTML = users.length ? users.map(u=>{
           const name=escapeHtml(u.display_name);
-          return `<div class="chip flex items-center gap-2 max-w-[220px]" data-uid="${u.id}">
+          return `<div class="chip flex items-center gap-2 max-w-[260px]" data-uid="${u.id}">
                     <span class="truncate">${name}</span>
                     <button class="xbtn" title="Verwijderen" aria-label="Verwijder ${name}" data-del="${u.id}">×</button>
                   </div>`;
@@ -370,6 +393,17 @@
       renderActivity();
     }
 
+    // ---------- Modal helpers ----------
+    function openModal(){
+      els.namesModal?.classList.remove('hidden');
+      document.body.style.overflow='hidden';
+      renderUserChips(); // zorg dat lijst actueel is
+    }
+    function closeModal(){
+      els.namesModal?.classList.add('hidden');
+      document.body.style.overflow='';
+    }
+
     // ---------- Init wiring ----------
     function initLocationChips(){
       renderLocationChips();
@@ -389,13 +423,15 @@
       const showErr=(msg)=>{ els.nameError.textContent=msg; els.nameError.classList.remove('hidden'); };
       const hideErr=()=>{ els.nameError.classList.add('hidden'); };
 
+      // Toevoegen
       els.addUserBtn?.addEventListener('click', ()=>{
         const name=(els.newUserName?.value||'').trim();
         if(!name || name.length<2){ showErr('Vul een geldige naam in (minimaal 2 tekens).'); els.newUserName?.focus(); return; }
         try{
           const u=addUser(name);
           if(els.newUserName){ els.newUserName.value=''; }
-          hideErr(); renderUsersSelect(); renderUserChips();
+          hideErr(); renderUsersSelect();
+          if(!els.namesModal?.classList.contains('hidden')) renderUserChips(); // update modal als open
           if(els.userSelect){ els.userSelect.value=u.id; }
           selectedUserId=u.id; selectedLocation='';
           renderStatus(); renderLiveList();
@@ -406,26 +442,36 @@
       });
       els.newUserName?.addEventListener('input', hideErr);
 
+      // Verwijderen via chips in modal
       els.userChips?.addEventListener('click', e=>{
         const btn=e.target.closest('button[data-del]'); if(!btn) return;
         const uid=btn.getAttribute('data-del');
         const users=getUsers(); const u=users.find(x=>x.id===uid);
         const naam=u?u.display_name:'deze naam';
         if(!confirm(`‘${naam}’ verwijderen? Open diensten worden automatisch afgesloten.`)) return;
-        try{ deleteUser(uid,true); renderUsersSelect(); renderUserChips(); renderStatus(); renderLiveList(); }
-        catch(err){ alert(err.message||'Kon de naam niet verwijderen.'); }
+        try{
+          deleteUser(uid,true);
+          renderUsersSelect(); renderUserChips(); renderStatus(); renderLiveList();
+        }catch(err){ alert(err.message||'Kon de naam niet verwijderen.'); }
       });
 
+      // Verwijderen naast dropdown
       els.deleteSelectedBtn?.addEventListener('click', ()=>{
         const uid=els.userSelect?.value;
         if(!uid){ alert('Kies eerst een naam.'); return; }
         const users=getUsers(); const u=users.find(x=>x.id===uid);
         const naam=u?u.display_name:'deze naam';
         if(!confirm(`‘${naam}’ verwijderen? Open diensten worden automatisch afgesloten.`)) return;
-        try{ deleteUser(uid,true); renderUsersSelect(); renderUserChips(); selectedUserId=''; selectedLocation=''; renderStatus(); renderLiveList(); }
-        catch(err){ alert(err.message||'Kon de naam niet verwijderen.'); }
+        try{
+          deleteUser(uid,true);
+          renderUsersSelect();
+          if(!els.namesModal?.classList.contains('hidden')) renderUserChips();
+          selectedUserId=''; selectedLocation='';
+          renderStatus(); renderLiveList();
+        }catch(err){ alert(err.message||'Kon de naam niet verwijderen.'); }
       });
 
+      // Dropdown wissel
       els.userSelect?.addEventListener('change', ()=>{
         selectedUserId=els.userSelect.value||'';
         const u=getUsers().find(x=>x.id===selectedUserId);
@@ -433,7 +479,13 @@
         renderStatus();
       });
 
-      renderUsersSelect(); renderUserChips();
+      // Modal open/close
+      els.openNamesModal?.addEventListener('click', openModal);
+      els.closeNamesModal?.addEventListener('click', closeModal);
+      els.namesModalBackdrop?.addEventListener('click', closeModal);
+      document.addEventListener('keydown', (e)=>{ if(e.key==='Escape' && !els.namesModal.classList.contains('hidden')) closeModal(); });
+
+      renderUsersSelect();
     }
     function initToggle(){
       els.toggleBtn?.addEventListener('click', ()=>{
@@ -488,14 +540,14 @@
           localStorage.removeItem('clock_activity');
           selectedUserId=''; selectedLocation=''; filterLocation='Alle';
           saveUsers([]); saveShifts([]); saveRounds([]); saveActivity([]);
-          renderUsersSelect(); renderUserChips(); renderLocationChips(); renderFilters(); renderStatus(); renderLiveList();
+          renderUsersSelect(); renderLocationChips(); renderFilters(); renderStatus(); renderLiveList();
         }
       });
     }
     function initLiveSync(){
       window.addEventListener('storage', e=>{
         if(['clock_users','clock_shifts','clock_rounds','clock_activity'].includes(e.key)){
-          renderUsersSelect(); renderUserChips(); renderStatus(); renderLiveList();
+          renderUsersSelect(); if(!els.namesModal.classList.contains('hidden')) renderUserChips(); renderStatus(); renderLiveList();
         }
       });
       setInterval(()=>renderLiveList(), 5000);
@@ -518,3 +570,4 @@
   </script>
 </body>
 </html>
+
