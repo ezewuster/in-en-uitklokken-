@@ -1,0 +1,520 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>In-/Uitklok + Ronde (locatie bij ronde-start)</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <meta name="color-scheme" content="light dark" />
+  <style>
+    :focus-visible{outline:3px solid rgba(59,130,246,.85);outline-offset:3px;border-radius:.6rem}
+    .chip{padding:.45rem .75rem;border-radius:9999px;border:1px solid #cbd5e1;background:rgba(148,163,184,.15)}
+    @media (prefers-color-scheme: dark){.chip{border-color:#475569;background:rgba(51,65,85,.5)}}
+    .chip.active{background:#2563eb;color:#fff;border-color:#2563eb}
+    .card{border-radius:1rem;border:1px solid rgba(100,116,139,.3);background:rgba(241,245,249,.6)}
+    @media (prefers-color-scheme: dark){.card{background:rgba(2,6,23,.55);border-color:rgba(30,41,59,.7)}}
+    .btn{padding:.8rem 1.1rem;border-radius:.9rem;font-weight:600}
+    .btn.primary{background:#059669;color:#fff}
+    .btn.danger{background:#dc2626;color:#fff}
+    .btn[disabled]{background:#cbd5e1;color:#475569;cursor:not-allowed}
+    .badge{font-size:.72rem;padding:.15rem .45rem;border-radius:.5rem;border:1px solid rgba(100,116,139,.35)}
+    .dark .badge{border-color:rgba(100,116,139,.45)}
+    .xbtn{display:inline-flex;align-items:center;justify-content:center;width:1.25rem;height:1.25rem;border-radius:9999px;border:1px solid rgba(100,116,139,.45);line-height:1;font-weight:700}
+    .xbtn:hover{filter:brightness(1.1)}
+  </style>
+</head>
+<body class="min-h-screen bg-slate-50 text-slate-900 dark:bg-slate-950 dark:text-slate-100">
+  <header class="max-w-6xl mx-auto px-4 sm:px-6 py-5 flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3">
+    <div>
+      <h1 class="text-3xl font-semibold">In-/uitklok</h1>
+      <p id="serverTime" class="text-sm text-slate-500">–</p>
+    </div>
+    <div class="flex items-center gap-3">
+      <div class="text-sm">Nu ingeklokt: <span id="totalClocked" class="font-semibold">0</span></div>
+      <button id="clearAll" class="chip text-xs" title="Leeg alle lokale data">Opschonen</button>
+    </div>
+  </header>
+
+  <main class="max-w-6xl mx-auto px-4 sm:px-6 pb-10 grid grid-cols-1 lg:grid-cols-2 gap-6">
+    <!-- Klokken -->
+    <section class="card p-5 sm:p-6">
+      <h2 class="text-lg font-semibold mb-4">Klokken</h2>
+
+      <!-- Naam kiezen / toevoegen -->
+      <div class="space-y-3 mb-4">
+        <label class="block text-sm font-medium">Kies je naam</label>
+        <div class="flex gap-3 items-end flex-wrap">
+          <div class="grow min-w-[260px] flex items-center gap-2">
+            <select id="userSelect" class="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-800">
+              <option value="" selected disabled>— Kies —</option>
+            </select>
+            <button id="deleteSelectedBtn" type="button" class="chip xbtn border-red-600 text-red-600" title="Verwijder geselecteerde naam">×</button>
+          </div>
+          <div class="flex items-end gap-2">
+            <div>
+              <label for="newUserName" class="block text-xs text-slate-500">Nieuwe naam toevoegen</label>
+              <input id="newUserName" type="text" placeholder="Voor- en achternaam" class="px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-800" />
+            </div>
+            <button id="addUserBtn" type="button" class="chip bg-blue-600 text-white border-blue-600 hover:brightness-110">Toevoegen</button>
+          </div>
+        </div>
+        <p id="nameError" class="text-sm text-red-500 hidden"></p>
+      </div>
+
+      <!-- Namenbeheer -->
+      <div class="mb-5">
+        <h3 class="text-sm font-medium mb-2">Namen (klik × om te verwijderen)</h3>
+        <div id="userChips" class="flex flex-wrap gap-2"></div>
+      </div>
+
+      <!-- Locatie kiezen -->
+      <div class="mb-5">
+        <h3 class="text-sm font-medium mb-2">Locatie (dienst)</h3>
+        <div id="locationChips" class="flex flex-wrap gap-2"></div>
+      </div>
+
+      <!-- Acties -->
+      <div class="space-y-3">
+        <div id="statusBar" class="text-sm text-slate-700 dark:text-slate-300">Selecteer een naam om status te zien.</div>
+        <button id="toggleBtn" disabled class="btn">Inklokken</button>
+      </div>
+
+      <!-- Ronde -->
+      <div class="space-y-2 mt-6">
+        <div class="text-sm font-medium">Ronde langs locaties</div>
+        <div id="roundStatus" class="text-sm text-slate-700 dark:text-slate-300">Niet actief.</div>
+        <button id="roundToggleBtn" class="btn" disabled>Start ronde</button>
+        <p class="text-xs text-slate-500">Start ronde = je gaat op ronde vanaf je dienstlocatie. Stop ronde = je bent terug.</p>
+      </div>
+    </section>
+
+    <!-- Nu ingeklokt + Activiteit -->
+    <section class="card p-5 sm:p-6">
+      <div class="flex items-center justify-between mb-4">
+        <h2 class="text-lg font-semibold">Nu ingeklokt</h2>
+        <div class="flex flex-wrap gap-2 text-sm max-w-full" id="filterTabs"></div>
+      </div>
+      <div id="liveList" class="space-y-4">
+        <p class="text-sm text-slate-500">Niemand is ingeklokt.</p>
+      </div>
+
+      <div class="mt-6 border-t border-slate-200 dark:border-slate-700 pt-4">
+        <div class="flex items-center justify-between mb-2 gap-2 flex-wrap">
+          <h3 class="text-sm font-medium">Activiteit</h3>
+          <div class="flex items-center gap-2">
+            <select id="activityRange" class="px-2 py-1 rounded border border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-800 text-sm">
+              <option value="24h">24 uur</option>
+              <option value="7d">7 dagen</option>
+              <option value="30d" selected>30 dagen</option>
+              <option value="all">Alles</option>
+            </select>
+            <button id="exportCsv" class="chip text-sm">Export CSV</button>
+          </div>
+        </div>
+        <ol id="activityFeed" class="text-sm space-y-1 max-h-72 overflow-auto pr-1"></ol>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    // ---------- Constants & helpers ----------
+    const TZ='Europe/Amsterdam';
+    const LOCATIONS=['euroborg','europapark','boterdiep','circus','damsterdiep'];
+    const $ = id => document.getElementById(id);
+
+    const els={
+      serverTime: $('serverTime'),
+      totalClocked: $('totalClocked'),
+      clearAll: $('clearAll'),
+      userSelect: $('userSelect'),
+      deleteSelectedBtn: $('deleteSelectedBtn'),
+      newUserName: $('newUserName'),
+      addUserBtn: $('addUserBtn'),
+      nameError: $('nameError'),
+      userChips: $('userChips'),
+      locationChips: $('locationChips'),
+      statusBar: $('statusBar'),
+      toggleBtn: $('toggleBtn'),
+      roundStatus: $('roundStatus'),
+      roundToggleBtn: $('roundToggleBtn'),
+      liveList: $('liveList'),
+      filterTabs: $('filterTabs'),
+      activityFeed: $('activityFeed'),
+      activityRange: $('activityRange'),
+      exportCsv: $('exportCsv'),
+    };
+
+    const makeId=()=> 'id_'+Math.random().toString(36).slice(2,8)+Date.now().toString(36);
+    const nowISO=()=> new Date().toISOString();
+    const fmtTimeShort=iso=> new Intl.DateTimeFormat('nl-NL',{hour:'2-digit',minute:'2-digit',timeZone:TZ}).format(new Date(iso));
+    const fmtDateLocal=iso=> new Intl.DateTimeFormat('nl-NL',{year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit',timeZone:TZ}).format(new Date(iso));
+    const escapeHtml=s=>(s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+    // ---------- Storage ----------
+    const getUsers = () => JSON.parse(localStorage.getItem('clock_users')||'[]');
+    const saveUsers = a => localStorage.setItem('clock_users', JSON.stringify(a));
+    const getShifts = () => JSON.parse(localStorage.getItem('clock_shifts')||'[]');
+    const saveShifts = a => localStorage.setItem('clock_shifts', JSON.stringify(a));
+    const getRounds = () => JSON.parse(localStorage.getItem('clock_rounds')||'[]');
+    const saveRounds = a => localStorage.setItem('clock_rounds', JSON.stringify(a));
+    const getActivity = () => JSON.parse(localStorage.getItem('clock_activity')||'[]');
+    const saveActivity = a => localStorage.setItem('clock_activity', JSON.stringify(a));
+
+    // ---------- Activity keep 30d ----------
+    function pruneActivity(days=30){
+      const cutoff=Date.now()-days*24*60*60*1000;
+      const pruned=getActivity().filter(a=>new Date(a.at).getTime()>=cutoff);
+      saveActivity(pruned);
+      return pruned;
+    }
+    function pushActivity(msg){
+      const list=getActivity();
+      list.unshift({id:makeId(), at:nowISO(), msg});
+      const cutoff=Date.now()-30*24*60*60*1000;
+      saveActivity(list.filter(a=>new Date(a.at).getTime()>=cutoff));
+    }
+    function getActivityFiltered(range){
+      const data=getActivity();
+      if(range==='all') return data;
+      const windows={ '24h':24*3600e3, '7d':7*24*3600e3, '30d':30*24*3600e3 };
+      const cutoff=Date.now()-(windows[range]||windows['30d']);
+      return data.filter(a=>new Date(a.at).getTime()>=cutoff);
+    }
+
+    // ---------- State ----------
+    let selectedUserId=''; let selectedLocation=''; let filterLocation='Alle';
+
+    // ---------- Domain actions ----------
+    function addUser(name){
+      const clean=(name||'').trim();
+      if(clean.length<2) throw new Error('Naam is te kort.');
+      const users=getUsers();
+      if(users.some(u=>(u.display_name||'').trim().toLowerCase()===clean.toLowerCase()))
+        throw new Error('Die naam bestaat al.');
+      const u={id:makeId(), display_name:clean, is_active:true, last_location:''};
+      users.push(u); saveUsers(users); pushActivity('Naam toegevoegd: '+clean);
+      return u;
+    }
+    function deleteUser(uid, force=false){
+      const users=getUsers(); const u=users.find(x=>x.id===uid);
+      if(!u) throw new Error('Gebruiker niet gevonden.');
+      const openShift = getShifts().find(s=>s.user_id===uid && !s.end_at);
+      const openRound = getRounds().find(r=>r.user_id===uid && !r.end_at);
+      if((openShift || openRound) && force){
+        try{ if(openShift) clockOut(uid); else if(openRound) stopRound(uid); }catch(e){}
+      }else if(openShift || openRound){
+        throw new Error('Kan niet verwijderen: gebruiker is ingeklokt of op ronde.');
+      }
+      saveUsers(users.filter(x=>x.id!==uid));
+      pushActivity('Naam verwijderd: '+u.display_name+(force?' (automatisch uitgeklokt)':''));
+      if(selectedUserId===uid){ selectedUserId=''; selectedLocation=''; }
+    }
+    function clockIn(uid,loc){
+      if(!LOCATIONS.includes(loc)) throw new Error('Ongeldige locatie.');
+      const users=getUsers(); const u=users.find(x=>x.id===uid);
+      if(!u) throw new Error('Onbekende gebruiker.');
+      if(getShifts().some(s=>s.user_id===uid && !s.end_at)) throw new Error('Je bent al ingeklokt.');
+      const s=getShifts(); s.push({id:makeId(), user_id:uid, location:loc, start_at:nowISO(), end_at:null}); saveShifts(s);
+      u.last_location=loc; saveUsers(users);
+      pushActivity(u.display_name+' inklokte @ '+loc);
+    }
+    function clockOut(uid){
+      const users=getUsers(); const u=users.find(x=>x.id===uid);
+      if(!u) throw new Error('Onbekende gebruiker.');
+      const s=getShifts(); const open=s.find(r=>r.user_id===uid && !r.end_at);
+      if(!open) throw new Error('Geen lopende dienst.');
+      const rounds=getRounds(); const r=rounds.find(x=>x.user_id===uid && !x.end_at);
+      if(r){ r.end_at=nowISO(); saveRounds(rounds); pushActivity(u.display_name+' stopte ronde'); }
+      open.end_at=nowISO(); saveShifts(s);
+      pushActivity(u.display_name+' uitklokte @ '+open.location);
+    }
+    // ★★ HIER aangepast: locatie vastleggen + tonen bij Start ronde
+    function startRound(uid){
+      const shift = getShifts().find(s=>s.user_id===uid && !s.end_at);
+      if(!shift) throw new Error('Eerst inklokken.');
+      const rounds=getRounds();
+      if(rounds.find(r=>r.user_id===uid && !r.end_at)) throw new Error('Ronde is al actief.');
+      rounds.push({id:makeId(), user_id:uid, start_at:nowISO(), end_at:null, from_location:shift.location});
+      saveRounds(rounds);
+      const user=getUsers().find(u=>u.id===uid);
+      pushActivity((user?.display_name||'Iemand')+' startte ronde @ '+shift.location);
+    }
+    function stopRound(uid){
+      const rounds=getRounds(); const open=rounds.find(r=>r.user_id===uid && !r.end_at);
+      if(!open) throw new Error('Geen actieve ronde.');
+      open.end_at=nowISO(); saveRounds(rounds);
+      const user=getUsers().find(u=>u.id===uid);
+      pushActivity((user?.display_name||'Iemand')+' stopte ronde');
+    }
+
+    // ---------- Render helpers ----------
+    const getOpenShiftForUser = uid => getShifts().find(s=>s.user_id===uid && !s.end_at);
+    const getOpenRoundForUser = uid => getRounds().find(r=>r.user_id===uid && !r.end_at);
+
+    function renderUsersSelect(){
+      const users=getUsers().filter(u=>u.is_active!==false).sort((a,b)=>a.display_name.localeCompare(b.display_name,'nl-NL'));
+      const keep=els.userSelect?.value||'';
+      if(els.userSelect){
+        els.userSelect.innerHTML='<option value="" disabled '+(!keep?'selected':'')+'>— Kies —</option>'+
+          users.map(u=>`<option value="${u.id}">${escapeHtml(u.display_name)}</option>`).join('');
+        if(users.some(u=>u.id===keep)) els.userSelect.value=keep;
+      }
+    }
+    function renderUserChips(){
+      const users=getUsers().filter(u=>u.is_active!==false).sort((a,b)=>a.display_name.localeCompare(b.display_name,'nl-NL'));
+      if(els.userChips){
+        els.userChips.innerHTML = users.length ? users.map(u=>{
+          const name=escapeHtml(u.display_name);
+          return `<div class="chip flex items-center gap-2 max-w-[220px]" data-uid="${u.id}">
+                    <span class="truncate">${name}</span>
+                    <button class="xbtn" title="Verwijderen" aria-label="Verwijder ${name}" data-del="${u.id}">×</button>
+                  </div>`;
+        }).join('') : '<p class="text-sm text-slate-500">Nog geen namen.</p>';
+      }
+    }
+    function renderLocationChips(){
+      if(!els.locationChips) return;
+      els.locationChips.innerHTML=LOCATIONS.map(loc=>{
+        const active=(selectedLocation===loc)?'bg-blue-600 text-white border-blue-600':'';
+        return `<button type="button" data-loc="${loc}" class="chip ${active}">${loc}</button>`;
+      }).join('');
+    }
+    function renderFilters(){
+      if(!els.filterTabs) return;
+      const all=['Alle',...LOCATIONS];
+      els.filterTabs.innerHTML=all.map(loc=>{
+        const active=(filterLocation===loc)?'active':'';
+        return `<button class="chip ${active}" data-filter="${loc}">${loc}</button>`;
+      }).join('');
+    }
+
+    function renderStatus(){
+      if(!els.statusBar || !els.toggleBtn || !els.roundStatus || !els.roundToggleBtn) return;
+      if(!selectedUserId){
+        els.statusBar.textContent='Selecteer een naam om status te zien.';
+        els.toggleBtn.disabled=true; els.toggleBtn.className='btn';
+        els.roundStatus.textContent='Niet actief.'; els.roundToggleBtn.disabled=true; els.roundToggleBtn.className='btn'; els.roundToggleBtn.textContent='Start ronde';
+        return;
+      }
+      const user=getUsers().find(u=>u.id===selectedUserId); if(!user) return;
+      if(!selectedLocation && user.last_location){ selectedLocation=user.last_location }
+      renderLocationChips();
+
+      const openShift=getOpenShiftForUser(selectedUserId);
+      if(openShift){
+        els.statusBar.textContent='Ingeklokt sinds '+fmtTimeShort(openShift.start_at)+' @ '+openShift.location;
+        els.toggleBtn.textContent='Uitklokken'; els.toggleBtn.disabled=false; els.toggleBtn.className='btn danger';
+        const openRound=getOpenRoundForUser(selectedUserId);
+        if(openRound){
+          const fromLoc = openRound.from_location || openShift.location;
+          els.roundStatus.textContent='Ronde actief sinds '+fmtTimeShort(openRound.start_at)+' (vanaf '+fromLoc+')';
+          els.roundToggleBtn.disabled=false; els.roundToggleBtn.className='btn danger'; els.roundToggleBtn.textContent='Stop ronde';
+        }else{
+          els.roundStatus.textContent='Niet actief.';
+          els.roundToggleBtn.disabled=false; els.roundToggleBtn.className='btn primary'; els.roundToggleBtn.textContent='Start ronde';
+        }
+      }else{
+        els.statusBar.textContent= selectedLocation ? ('Klaar om in te klokken @ '+selectedLocation) : 'Niet ingeklokt.';
+        els.toggleBtn.textContent='Inklokken';
+        const can=!!selectedLocation; els.toggleBtn.disabled=!can; els.toggleBtn.className= can ? 'btn primary' : 'btn';
+        els.roundStatus.textContent='Niet actief (eerst inklokken).';
+        els.roundToggleBtn.disabled=true; els.roundToggleBtn.className='btn'; els.roundToggleBtn.textContent='Start ronde';
+      }
+    }
+
+    function renderActivity(){
+      if(!els.activityFeed || !els.activityRange) return;
+      const pref=localStorage.getItem('clock_activity_range')||'30d';
+      els.activityRange.value=pref;
+      const filtered=getActivityFiltered(pref);
+      els.activityFeed.innerHTML = filtered.length
+        ? filtered.map(a=>`<li><span class="text-slate-500">${fmtTimeShort(a.at)}</span> — ${escapeHtml(a.msg)}</li>`).join('')
+        : '<li class="text-slate-500">Geen activiteit in deze periode.</li>';
+    }
+
+    function renderLiveList(){
+      if(!els.liveList || !els.totalClocked) return;
+      const shifts=getShifts(), users=getUsers(), rounds=getRounds();
+      const open=shifts.filter(s=>!s.end_at); els.totalClocked.textContent=String(open.length);
+
+      const byLoc={}; LOCATIONS.forEach(l=>byLoc[l]=[]);
+      open.forEach(s=>{
+        const r=rounds.find(x=>x.user_id===s.user_id && !x.end_at);
+        byLoc[s.location]?.push({
+          user_id:s.user_id,
+          since:s.start_at,
+          on_round: !!r,
+          round_from: r?.from_location || s.location
+        });
+      });
+      Object.values(byLoc).forEach(a=>a.sort((x,y)=>new Date(x.since)-new Date(y.since)));
+
+      const locs=filterLocation==='Alle'?LOCATIONS:[filterLocation];
+      let any=false; let html='<div class="grid grid-cols-1 sm:grid-cols-2 gap-4">';
+      for(const loc of locs){
+        const arr=byLoc[loc]; if(!arr || !arr.length) continue; any=true;
+        html+='<div class="rounded-xl border border-slate-200 dark:border-slate-700 p-3 min-w-0">';
+        html+='<div class="font-medium mb-2">'+loc+' <span class="text-slate-500">('+(arr.length)+')</span></div>';
+        html+='<ul class="space-y-2">';
+        for(const e of arr){
+          const u=users.find(x=>x.id===e.user_id); const name=u?u.display_name:'Onbekend';
+          html+='<li class="flex items-center justify-between bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2">';
+          html+='<span class="font-medium truncate">'+escapeHtml(name)+(e.on_round?` <span class="badge" title="vanaf ${e.round_from}">op ronde</span>`:'')+'</span>';
+          html+='<span class="text-sm text-slate-700 dark:text-slate-300">sinds '+fmtTimeShort(e.since)+'</span>';
+          html+='</li>';
+        }
+        html+='</ul></div>';
+      }
+      html+='</div>';
+      els.liveList.innerHTML = any ? html : '<p class="text-sm text-slate-500">Niemand is ingeklokt.</p>';
+      renderActivity();
+    }
+
+    // ---------- Init wiring ----------
+    function initLocationChips(){
+      renderLocationChips();
+      els.locationChips?.addEventListener('click', e=>{
+        const b=e.target.closest('button[data-loc]'); if(!b) return;
+        selectedLocation=b.getAttribute('data-loc'); renderLocationChips(); renderStatus();
+      });
+    }
+    function initFilters(){
+      renderFilters();
+      els.filterTabs?.addEventListener('click', e=>{
+        const b=e.target.closest('button[data-filter]'); if(!b) return;
+        filterLocation=b.getAttribute('data-filter'); renderFilters(); renderLiveList();
+      });
+    }
+    function initUsers(){
+      const showErr=(msg)=>{ els.nameError.textContent=msg; els.nameError.classList.remove('hidden'); };
+      const hideErr=()=>{ els.nameError.classList.add('hidden'); };
+
+      els.addUserBtn?.addEventListener('click', ()=>{
+        const name=(els.newUserName?.value||'').trim();
+        if(!name || name.length<2){ showErr('Vul een geldige naam in (minimaal 2 tekens).'); els.newUserName?.focus(); return; }
+        try{
+          const u=addUser(name);
+          if(els.newUserName){ els.newUserName.value=''; }
+          hideErr(); renderUsersSelect(); renderUserChips();
+          if(els.userSelect){ els.userSelect.value=u.id; }
+          selectedUserId=u.id; selectedLocation='';
+          renderStatus(); renderLiveList();
+        }catch(err){ showErr(err.message||'Onbekende fout'); els.newUserName?.focus(); }
+      });
+      els.newUserName?.addEventListener('keydown', e=>{
+        if(e.key==='Enter'){ e.preventDefault(); els.addUserBtn?.click(); }
+      });
+      els.newUserName?.addEventListener('input', hideErr);
+
+      els.userChips?.addEventListener('click', e=>{
+        const btn=e.target.closest('button[data-del]'); if(!btn) return;
+        const uid=btn.getAttribute('data-del');
+        const users=getUsers(); const u=users.find(x=>x.id===uid);
+        const naam=u?u.display_name:'deze naam';
+        if(!confirm(`‘${naam}’ verwijderen? Open diensten worden automatisch afgesloten.`)) return;
+        try{ deleteUser(uid,true); renderUsersSelect(); renderUserChips(); renderStatus(); renderLiveList(); }
+        catch(err){ alert(err.message||'Kon de naam niet verwijderen.'); }
+      });
+
+      els.deleteSelectedBtn?.addEventListener('click', ()=>{
+        const uid=els.userSelect?.value;
+        if(!uid){ alert('Kies eerst een naam.'); return; }
+        const users=getUsers(); const u=users.find(x=>x.id===uid);
+        const naam=u?u.display_name:'deze naam';
+        if(!confirm(`‘${naam}’ verwijderen? Open diensten worden automatisch afgesloten.`)) return;
+        try{ deleteUser(uid,true); renderUsersSelect(); renderUserChips(); selectedUserId=''; selectedLocation=''; renderStatus(); renderLiveList(); }
+        catch(err){ alert(err.message||'Kon de naam niet verwijderen.'); }
+      });
+
+      els.userSelect?.addEventListener('change', ()=>{
+        selectedUserId=els.userSelect.value||'';
+        const u=getUsers().find(x=>x.id===selectedUserId);
+        selectedLocation = selectedLocation || (u && u.last_location) || '';
+        renderStatus();
+      });
+
+      renderUsersSelect(); renderUserChips();
+    }
+    function initToggle(){
+      els.toggleBtn?.addEventListener('click', ()=>{
+        if(!selectedUserId) return;
+        const open=getOpenShiftForUser(selectedUserId);
+        try{
+          if(open){ clockOut(selectedUserId); }
+          else { if(!selectedLocation) throw new Error('Kies eerst een locatie.'); clockIn(selectedUserId, selectedLocation); }
+          renderStatus(); renderLiveList();
+        }catch(err){ alert(err.message||'Er ging iets mis.'); }
+      });
+    }
+    function initRoundToggle(){
+      els.roundToggleBtn?.addEventListener('click', ()=>{
+        if(!selectedUserId) return;
+        const round=getOpenRoundForUser(selectedUserId);
+        try{ if(round){ stopRound(selectedUserId); } else { startRound(selectedUserId); } renderStatus(); renderLiveList(); }
+        catch(err){ alert(err.message||'Er ging iets mis.'); }
+      });
+    }
+    function initActivity(){
+      const pref=localStorage.getItem('clock_activity_range')||'30d';
+      if(els.activityRange) els.activityRange.value=pref;
+      els.activityRange?.addEventListener('change', ()=>{
+        localStorage.setItem('clock_activity_range', els.activityRange.value);
+        renderActivity();
+      });
+      els.exportCsv?.addEventListener('click', ()=>{
+        const range=els.activityRange?.value||'30d';
+        const rows=getActivityFiltered(range);
+        if(!rows.length){ alert('Geen activiteit in deze periode.'); return; }
+        const header=['timestamp_iso','timestamp_local','message'];
+        const csvRows=[header.join(',')].concat(rows.map(a=>{
+          const iso=a.at, local=fmtDateLocal(a.at), msg=String(a.msg||'').replace(/"/g,'""');
+          return `"${iso}","${local}","${msg}"`;
+        }));
+        const blob=new Blob(["\uFEFF"+csvRows.join('\n')],{type:'text/csv;charset=utf-8;'});
+        const url=URL.createObjectURL(blob);
+        const a=document.createElement('a'); a.href=url; a.download=`activiteit-${range}-${new Date().toISOString().slice(0,10)}.csv`;
+        document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+      });
+      renderActivity();
+    }
+    function initHeader(){
+      const tick=()=>{ if(els.serverTime){ els.serverTime.textContent=new Intl.DateTimeFormat('nl-NL',{weekday:'long',year:'numeric',month:'long',day:'numeric',hour:'2-digit',minute:'2-digit',second:'2-digit', timeZone:TZ}).format(new Date()); } };
+      tick(); setInterval(tick,1000);
+      els.clearAll?.addEventListener('click', ()=>{
+        if(confirm('Alle namen, diensten, rondes en activiteit verwijderen op dit apparaat?')){
+          localStorage.removeItem('clock_users');
+          localStorage.removeItem('clock_shifts');
+          localStorage.removeItem('clock_rounds');
+          localStorage.removeItem('clock_activity');
+          selectedUserId=''; selectedLocation=''; filterLocation='Alle';
+          saveUsers([]); saveShifts([]); saveRounds([]); saveActivity([]);
+          renderUsersSelect(); renderUserChips(); renderLocationChips(); renderFilters(); renderStatus(); renderLiveList();
+        }
+      });
+    }
+    function initLiveSync(){
+      window.addEventListener('storage', e=>{
+        if(['clock_users','clock_shifts','clock_rounds','clock_activity'].includes(e.key)){
+          renderUsersSelect(); renderUserChips(); renderStatus(); renderLiveList();
+        }
+      });
+      setInterval(()=>renderLiveList(), 5000);
+    }
+
+    // ---------- Boot ----------
+    document.addEventListener('DOMContentLoaded', ()=>{
+      try{
+        if(!localStorage.getItem('clock_users')) saveUsers([]);
+        if(!localStorage.getItem('clock_shifts')) saveShifts([]);
+        if(!localStorage.getItem('clock_rounds')) saveRounds([]);
+        if(!localStorage.getItem('clock_activity')) saveActivity([]);
+        pruneActivity(30);
+        initHeader(); initFilters(); initLocationChips(); initUsers(); initToggle(); initRoundToggle(); initActivity(); initLiveSync();
+        renderLiveList(); renderStatus();
+      }catch(err){
+        alert('Er ging iets mis bij het laden: '+(err.message||err));
+      }
+    });
+  </script>
+</body>
+</html>
